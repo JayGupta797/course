@@ -3,103 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Course Prerequisite Network </title>
-    
-    <!-- Load Google Font -->
+    <title>Course Prerequisite Network</title>
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
-    <!-- Load Directed Graph -->
-    <script src="https://unpkg.com/force-graph@1.43.4/dist/force-graph.min.js"></script>
+    <script>
+      (function () {
+        const key = "course-network-theme";
+        const saved = localStorage.getItem(key);
+        const theme =
+          saved ||
+          (window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light");
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
 
-    <!-- Link to the external CSS file -->
-    <link rel="stylesheet" type="text/css" href="styles.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://unpkg.com/force-graph@1.43.4/dist/force-graph.min.js" defer></script>
+    <script src="script.js" defer></script>
 </head>
-
 <body>
+    <div class="app view-split" id="app">
+        <div class="mobile-bar" aria-label="Mobile view controls">
+            <button type="button" class="view-btn active" data-view="split">Split</button>
+            <button type="button" class="view-btn" data-view="list">Courses</button>
+            <button type="button" class="view-btn" data-view="graph">Graph</button>
+        </div>
 
-    <div class="mast">
-        <div id="sidebar">
-            <div id="navbar">
-                <div id="tabs">
-                    <div id="tab1" onclick="changeContent('content1')">Course Inspector</div>
-                    <div id="tab2" onclick="changeContent('content2')">Legend</div>
-                    <div id="tab3" onclick="changeContent('content3')" title="This tab is not clickable"></div>
-                </div>
-            </div>
+        <aside id="sidebar" class="sidebar">
+            <nav class="tabs" role="tablist" aria-label="Sidebar panels">
+                <button
+                    type="button"
+                    class="tab active"
+                    role="tab"
+                    aria-selected="true"
+                    aria-controls="panel-inspector"
+                    data-panel="inspector"
+                >
+                    Course Inspector
+                </button>
+                <button
+                    type="button"
+                    class="tab"
+                    role="tab"
+                    aria-selected="false"
+                    aria-controls="panel-legend"
+                    data-panel="legend"
+                >
+                    Legend
+                </button>
+                <button
+                    type="button"
+                    id="themeToggle"
+                    class="theme-toggle"
+                    aria-label="Switch to dark mode"
+                    title="Toggle dark mode"
+                >
+                    <span class="theme-label theme-label--to-dark">Dark</span>
+                    <span class="theme-label theme-label--to-light">Light</span>
+                </button>
+            </nav>
 
-            <div id="side-content">
-                <div id="content1">
-                    <!-- Content for Tab 1 goes here -->
-                    <h2>Select A Course</h2>
-                    <p>Inspect a course's prerequisites by clicking on a node in the graph or selecting one below. Courses without 1 or more incoming or outgoing links are omitted.</p>
-                    <input type="text" id="searchInput" placeholder="Search courses">
-                    <div class="table-container">
+            <div class="sidebar-panels">
+                <section
+                    id="panel-inspector"
+                    class="panel active"
+                    role="tabpanel"
+                    aria-labelledby="tab-inspector"
+                >
+                    <header class="panel-header">
+                        <h2>Browse courses</h2>
+                        <p>
+                            Click a row or graph node to zoom in on that course and its links.
+                            Courses with no prerequisite links are omitted.
+                        </p>
+                    </header>
+
+                    <label class="search-field">
+                        <span class="visually-hidden">Search courses</span>
+                        <input type="search" id="searchInput" placeholder="Search courses…" autocomplete="off">
+                    </label>
+
+                    <div class="table-scroll">
                         <table id="nodeTable">
                             <thead>
                                 <tr>
-                                    <th> 
-                                        <button class="ascending" id="name-sort-icon" onclick="sortTableBy('name')">
-                                            <svg width="10" height="10">
-                                                <polygon points="5,1 9,9 1,9" style="fill:var(--accent)" />
+                                    <th scope="col">
+                                        <button type="button" class="sort-btn ascending" data-sort="name">
+                                            Name
+                                            <svg class="sort-icon" width="10" height="10" aria-hidden="true">
+                                                <polygon points="5,1 9,9 1,9"></polygon>
                                             </svg>
                                         </button>
-                                        Name
                                     </th>
-                                    <th>
-                                        <button class="ascending" id="incoming-sort-icon" onclick="sortTableBy('incoming')">
-                                            <svg width="10" height="10">
-                                                <polygon points="5,1 9,9 1,9" style="fill:var(--accent)" />
+                                    <th scope="col">
+                                        <button type="button" class="sort-btn ascending" data-sort="incoming">
+                                            In
+                                            <svg class="sort-icon" width="10" height="10" aria-hidden="true">
+                                                <polygon points="5,1 9,9 1,9"></polygon>
                                             </svg>
                                         </button>
-                                        In
                                     </th>
-                                    <th>
-                                        <button class="ascending" id="outgoing-sort-icon" onclick="sortTableBy('outgoing')">
-                                            <svg width="10" height="10">
-                                                <polygon points="5,1 9,9 1,9" style="fill:var(--accent)" />
+                                    <th scope="col">
+                                        <button type="button" class="sort-btn ascending" data-sort="outgoing">
+                                            Out
+                                            <svg class="sort-icon" width="10" height="10" aria-hidden="true">
+                                                <polygon points="5,1 9,9 1,9"></polygon>
                                             </svg>
                                         </button>
-                                        Out
                                     </th>
-                                    <th>
-                                        <button class="ascending" id="group-sort-icon" onclick="sortTableBy('group')">
-                                            <svg width="10" height="10">
-                                                <polygon points="5,1 9,9 1,9" style="fill:var(--accent)" />
+                                    <th scope="col">
+                                        <button type="button" class="sort-btn ascending" data-sort="group">
+                                            Group
+                                            <svg class="sort-icon" width="10" height="10" aria-hidden="true">
+                                                <polygon points="5,1 9,9 1,9"></polygon>
                                             </svg>
                                         </button>
-                                        Group
                                     </th>
                                 </tr>
                             </thead>
-                            <tbody id="TableBody"></tbody>
+                            <tbody id="tableBody"></tbody>
                         </table>
                     </div>
-                </div>
+                </section>
 
-                <div id="content2" style="display: none;">
-                    <!-- Content for Tab 2 goes here -->
-                    <h2>Academic Groups</h2>
-                    <p>Courses are colored by their Academic Group.</p>
-                    <div class="legend-container">
+                <section
+                    id="panel-legend"
+                    class="panel"
+                    role="tabpanel"
+                    hidden
+                >
+                    <header class="panel-header">
+                        <h2>Academic groups</h2>
+                        <p>Courses are colored by their academic group.</p>
+                    </header>
+
+                    <div class="table-scroll table-scroll--fit">
                         <table id="legendTable">
                             <thead>
                                 <tr>
-                                    <th>Academic Group</th>
-                                    <th>HSL</th>
-                                    <th>Color</th>
+                                    <th scope="col">Academic group</th>
+                                    <th scope="col">Color</th>
                                 </tr>
                             </thead>
-                            <tbody id="LegendBody"></tbody>
+                            <tbody id="legendBody"></tbody>
                         </table>
                     </div>
-                </div>
+                </section>
             </div>
-        </div>
-        <div id="graph"></div>
-    </div>
+        </aside>
 
-    <script src="script.js"></script>
+        <div class="graph-panel" aria-label="Course prerequisite graph">
+            <div id="graphLoading" class="graph-loading" aria-live="polite">
+                Loading course network…
+            </div>
+            <button
+                type="button"
+                id="resetViewBtn"
+                class="graph-reset-btn hidden"
+                aria-label="Reset graph view"
+                title="Reset graph view"
+            >
+                Reset view
+            </button>
+            <div id="graph" class="graph"></div>
+        </div>
+    </div>
 </body>
 </html>

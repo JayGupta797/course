@@ -1,373 +1,491 @@
-// Function to set the initial state of tabs upon page load
-function setInitialTabsState() {
-    document.getElementById('content1').style.display = 'block';
-    document.getElementById('content2').style.display = 'none';
-    document.getElementById('tab1').classList.add('active-tab');
-    document.getElementById('tab2').classList.remove('active-tab');
+const DATA_URL =
+  "https://raw.githubusercontent.com/JayGupta797/course-network/main/graph.json";
+
+const THEME_KEY = "course-network-theme";
+
+const state = {
+  nodes: [],
+  links: [],
+  nodeById: new Map(),
+  selectedNode: null,
+  searchQuery: "",
+  sortColumn: "name",
+  sortDirection: "ascending",
+  graph: null,
+};
+
+const MOBILE_QUERY = window.matchMedia("(max-width: 900px)");
+
+const elements = {
+  app: document.getElementById("app"),
+  graph: document.getElementById("graph"),
+  graphLoading: document.getElementById("graphLoading"),
+  tableBody: document.getElementById("tableBody"),
+  legendBody: document.getElementById("legendBody"),
+  searchInput: document.getElementById("searchInput"),
+  tabs: document.querySelectorAll(".tab"),
+  panels: document.querySelectorAll(".panel"),
+  sortButtons: document.querySelectorAll(".sort-btn"),
+  viewButtons: document.querySelectorAll(".view-btn"),
+  themeToggle: document.getElementById("themeToggle"),
+  resetViewBtn: document.getElementById("resetViewBtn"),
+};
+
+function isDarkTheme() {
+  return document.documentElement.dataset.theme === "dark";
 }
 
-// Call the function on page load
-document.addEventListener('DOMContentLoaded', setInitialTabsState);
-
-function changeContent(tab) {
-    // Reset styles for all tabs
-    document.getElementById('tab1').classList.remove('active-tab');
-    document.getElementById('tab2').classList.remove('active-tab');
-
-    if (tab === 'content1') {
-        document.getElementById('content1').style.display = 'block';
-        document.getElementById('content2').style.display = 'none';
-        document.getElementById('tab1').classList.add('active-tab');
-    } 
-    else if (tab === 'content2') {
-        document.getElementById('content1').style.display = 'none';
-        document.getElementById('content2').style.display = 'block';
-        document.getElementById('tab2').classList.add('active-tab');
-    }
+function getPreferredTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === "light" || saved === "dark") return saved;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
 }
 
-fetch('https://raw.githubusercontent.com/JayGupta797/course-network/main/graph.json').then(res => res.json()).then(data => {
+function updateThemeToggle() {
+  if (!elements.themeToggle) return;
 
-  // Easily access nodes and links
-  // const filteredNodes = data.nodes
-  // const filteredLinks = data.links
+  const dark = isDarkTheme();
+  elements.themeToggle.setAttribute(
+    "aria-label",
+    dark ? "Switch to light mode" : "Switch to dark mode"
+  );
+  elements.themeToggle.title = dark ? "Switch to light mode" : "Switch to dark mode";
+}
 
-  // Filter out nodes without incoming and outgoing links
-  const filteredNodes = data.nodes.filter(node => {
-    // Check if the node has at least one incoming or outgoing link
-    return data.links.some(link => link.source === node.id || link.target === node.id);
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  updateThemeToggle();
+  applyGraphTheme();
+}
+
+function applyGraphTheme() {
+  if (!state.graph) return;
+
+  const dark = isDarkTheme();
+  state.graph
+    .backgroundColor("transparent")
+    .linkColor(() =>
+      dark ? "rgba(148, 163, 184, 0.28)" : "rgba(100, 116, 139, 0.35)"
+    );
+}
+
+function initTheme() {
+  setTheme(getPreferredTheme());
+
+  elements.themeToggle?.addEventListener("click", () => {
+    setTheme(isDarkTheme() ? "light" : "dark");
   });
 
-  // Filter out links that connect to nodes with no links
-  const filteredLinks = data.links.filter(link => {
-    return filteredNodes.some(node => node.id === link.source) && filteredNodes.some(node => node.id === link.target);
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", (event) => {
+      if (localStorage.getItem(THEME_KEY)) return;
+      setTheme(event.matches ? "dark" : "light");
+    });
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+function prepareGraphData(rawNodes, rawLinks) {
+  const degree = new Map();
+
+  rawLinks.forEach(({ source, target }) => {
+    degree.set(source, (degree.get(source) || 0) + 1);
+    degree.set(target, (degree.get(target) || 0) + 1);
   });
 
-  // Add neighbor and link attributes to nodes
-  filteredNodes.forEach(node => {
-    node.forward = [];
-    node.neighbors = [];
-    node.links = [];
-    node.incomingCount = 0;
-    node.outgoingCount = 0;
+  const nodes = rawNodes
+    .filter((node) => degree.has(node.id))
+    .map((node) => ({
+      ...node,
+      forward: [],
+      neighbors: [],
+      links: [],
+      incomingCount: 0,
+      outgoingCount: 0,
+    }));
+
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const links = rawLinks.filter(
+    (link) => nodeById.has(link.source) && nodeById.has(link.target)
+  );
+
+  links.forEach((link) => {
+    const sourceNode = nodeById.get(link.source);
+    const targetNode = nodeById.get(link.target);
+
+    sourceNode.forward.push(targetNode);
+    sourceNode.neighbors.push(targetNode);
+    targetNode.neighbors.push(sourceNode);
+    sourceNode.links.push(link);
+    targetNode.links.push(link);
+    sourceNode.outgoingCount += 1;
+    targetNode.incomingCount += 1;
   });
 
-  // Populate neighbors and links based on links
-  filteredLinks.forEach(link => {
-    const sourceNode = filteredNodes.find(node => node.id === link.source);
-    const targetNode = filteredNodes.find(node => node.id === link.target);
+  return { nodes, links, nodeById };
+}
 
-    if (sourceNode && targetNode) {
-      sourceNode.forward.push(targetNode);
-      sourceNode.neighbors.push(targetNode);
-      targetNode.neighbors.push(sourceNode);
-      sourceNode.links.push(link);
-      targetNode.links.push(link);
+function generateGroupColors(groups) {
+  const colors = new Map();
+  const step = groups.length ? 360 / groups.length : 0;
 
-      // Increment the incoming count for the target node
-      targetNode.incomingCount++;
-
-      // Increment the outgoing count for the source node
-      sourceNode.outgoingCount++;
-    }
+  groups.forEach((group, index) => {
+    colors.set(group, `hsl(${(index * step) % 360}, 55%, 52%)`);
   });
 
-  const highlightNodes = new Set();
-  const highlightLinks = new Set();
-  let hoverNode = null;
+  return colors;
+}
 
-  // Graph container and dimensions
-  const graphContainer = document.getElementById('graph');
-  const initialWidth = window.innerWidth * 70 / 100;
-  const initialHeight = graphContainer.clientHeight;
+function assignNodeColors(nodes) {
+  const groups = [...new Set(nodes.map((node) => node.group))].sort();
+  const groupColors = generateGroupColors(groups);
 
-  const Graph = ForceGraph()(graphContainer)
-    .width(initialWidth)
-    .height(initialHeight)
-    .graphData({
-      nodes: filteredNodes,
-      links: filteredLinks
-    })
-    .nodeLabel('id')
-    .onNodeClick(node => {
-        toggleNodeHighlight(node);
-        zoomIntoNode(node);
-    })
-    .autoPauseRedraw(false)
-    .linkWidth(link => highlightLinks.has(link) ? 4 : 1)
-    .linkDirectionalParticles(2)
-    .linkDirectionalParticleWidth(link => highlightLinks.has(link) ? 4 : 0)
-    .nodeCanvasObjectMode(node => highlightNodes.has(node) ? 'before' : undefined)
-    .nodeCanvasObject((node, ctx) => {
-        // Add a ring just for highlighted nodes
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, 6, 0, 2 * Math.PI, false);
+  nodes.forEach((node) => {
+    node.color = groupColors.get(node.group) || "#64748b";
+  });
 
-        // Check if the node is highlighted or clicked
-        if (node === hoverNode) {
-            ctx.fillStyle = 'black'; // Color for highlighted node
-        } else {
-            // Color based on incoming and outgoing nodes with respect to hoverNode
-            if (hoverNode && hoverNode.forward.includes(node)) {
-                // Outgoing nodes relative to hoverNode
-                ctx.fillStyle = 'red'; // You can adjust the color
-            } else if (hoverNode && node.forward.includes(hoverNode)) {
-                // Incoming nodes relative to hoverNode
-                ctx.fillStyle = 'blue'; // You can adjust the color
-            } else {
-                // Default color for non-highlighted nodes
-                ctx.fillStyle = 'black'; // You can adjust the color
-            }
-        }
-        ctx.fill();
+  return groupColors;
+}
+
+function renderLegend(groupColors) {
+  const fragment = document.createDocumentFragment();
+
+  [...groupColors.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .forEach(([group, color]) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${group}</td>
+        <td><div class="legend-swatch" style="background:${color}"></div></td>
+      `;
+      fragment.appendChild(row);
     });
 
-    // Function to toggle highlight nodes
-    function toggleNodeHighlight(node) {
-        highlightNodes.clear();
-        highlightLinks.clear();
-        if (node) {
-            highlightNodes.add(node);
-            node.neighbors.forEach(neighbor => highlightNodes.add(neighbor));
-            node.links.forEach(link => highlightLinks.add(link));
-            hoverNode = node;
-        }
+  elements.legendBody.replaceChildren(fragment);
+}
+
+function compareNodes(a, b) {
+  const direction = state.sortDirection === "ascending" ? 1 : -1;
+
+  if (state.sortColumn === "name") {
+    return direction * a.id.localeCompare(b.id);
+  }
+  if (state.sortColumn === "group") {
+    return direction * a.group.localeCompare(b.group);
+  }
+
+  const key =
+    state.sortColumn === "incoming" ? "incomingCount" : "outgoingCount";
+  return direction * (a[key] - b[key]);
+}
+
+function getVisibleNodes() {
+  const query = state.searchQuery.trim().toLowerCase();
+
+  return state.nodes
+    .filter((node) => !query || node.id.toLowerCase().includes(query))
+    .sort(compareNodes);
+}
+
+function renderTable() {
+  const visibleNodes = getVisibleNodes();
+  const fragment = document.createDocumentFragment();
+
+  visibleNodes.forEach((node) => {
+    const row = document.createElement("tr");
+    row.dataset.nodeId = node.id;
+    row.innerHTML = `
+      <td>${node.id}</td>
+      <td>${node.incomingCount}</td>
+      <td>${node.outgoingCount}</td>
+      <td>${node.group}</td>
+    `;
+    fragment.appendChild(row);
+  });
+
+  elements.tableBody.replaceChildren(fragment);
+}
+
+function updateSortButtons() {
+  elements.sortButtons.forEach((button) => {
+    const isActive = button.dataset.sort === state.sortColumn;
+    button.classList.toggle("ascending", isActive && state.sortDirection === "ascending");
+    button.classList.toggle("descending", isActive && state.sortDirection === "descending");
+  });
+}
+
+function focusOnNode(node) {
+  if (!state.graph || !node) return;
+
+  const focusIds = new Set([node.id, ...node.neighbors.map((n) => n.id)]);
+  const duration = 1000;
+  const padding = 100;
+
+  const applyFocus = () => {
+    const bbox = state.graph.getGraphBbox((n) => focusIds.has(n.id));
+
+    if (bbox) {
+      state.graph.zoomToFit(duration, padding, (n) => focusIds.has(n.id));
+      return;
     }
 
-    // Function to zoom into a node
-    function zoomIntoNode(node) {
-        Graph.centerAt(node.x, node.y, 1000);
-        Graph.zoom(1.5, 1000)
+    if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+      state.graph.centerAt(node.x, node.y, duration);
+      state.graph.zoom(4, duration);
+    }
+  };
+
+  const waitForLayout = (attempt = 0) => {
+    if (Number.isFinite(node.x) && Number.isFinite(node.y)) {
+      requestAnimationFrame(() => requestAnimationFrame(applyFocus));
+      return;
     }
 
-    // Function to handle global click events
-    function handleGlobalClick(event) {
-        // Check if the click is outside the table or graph
-        if (!event.target.closest("#nodeTable")) {
-            highlightNodes.clear();
-            highlightLinks.clear();
-        }
+    if (attempt < 300) {
+      requestAnimationFrame(() => waitForLayout(attempt + 1));
     }
+  };
 
-    // Attach the global click event listener to the document
-    document.addEventListener("click", handleGlobalClick);
+  waitForLayout();
+}
 
-    // Helpler Function to get Colors
-    function generateUniqueColors(n) {
-      const colors = [];
+function focusCourse(node) {
+  if (!node) {
+    state.selectedNode = null;
+    return;
+  }
 
-      for (let i = 0; i < n; i++) {
-        const hue = (i * (360 / n)) % 360;  // Distribute hues evenly
-        const saturation = 50;
-        const lightness = 50;
+  if (state.selectedNode?.id === node.id) {
+    state.selectedNode = null;
+    return;
+  }
 
-        const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-        colors.push(color);
-      }
+  state.selectedNode = node;
+  focusOnNode(node);
+}
 
-      return colors;
+function resetGraphView() {
+  if (!state.graph || !state.nodes.length) return;
+
+  state.selectedNode = null;
+  state.graph.zoomToFit(1000, 80);
+}
+
+function initGraphControls() {
+  elements.resetViewBtn?.addEventListener("click", resetGraphView);
+}
+
+function setMobileView(view) {
+  if (!MOBILE_QUERY.matches) return;
+
+  elements.app.classList.remove("view-split", "view-list", "view-graph");
+  elements.app.classList.add(`view-${view}`);
+
+  elements.viewButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.view === view);
+  });
+
+  requestAnimationFrame(resizeGraph);
+}
+
+function resizeGraph() {
+  if (!state.graph) return;
+
+  state.graph
+    .width(elements.graph.clientWidth)
+    .height(elements.graph.clientHeight);
+}
+
+function initMobileViewControls() {
+  elements.viewButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setMobileView(button.dataset.view);
+    });
+  });
+
+  MOBILE_QUERY.addEventListener("change", () => {
+    if (MOBILE_QUERY.matches) {
+      setMobileView("split");
+    } else {
+      elements.app.classList.remove("view-list", "view-graph");
+      elements.app.classList.add("view-split");
+      resizeGraph();
     }
+  });
+}
 
-    // Function to update legend
-    function updateLegend(nodes) {
-      
-      const legendBody = document.getElementById('LegendBody');
+function initTabs() {
+  elements.tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const panelName = tab.dataset.panel;
 
-      // Clear previous table content
-      legendBody.innerHTML = '';
-
-      const uniqueGroups = [...new Set(nodes.map(node => node.group))];
-      const colors = generateUniqueColors(uniqueGroups.length);
-      const groupColors = {};
-
-      // Run through unique groups
-      uniqueGroups.forEach((group, index) => {
-
-        // Store color
-        groupColors[group] = colors[index];
-
-        // Create cells
-        const row = document.createElement("tr");
-        const groupCell = document.createElement("td");
-        const hexCell = document.createElement("td");
-        const colorCell = document.createElement("td");
-
-        // Add content
-        groupCell.textContent = `${group}`;
-        hexCell.textContent = `${colors[index]}`;
-        colorCell.style.backgroundColor = colors[index] || 'black';
-
-        // Append children
-        row.appendChild(groupCell);
-        row.appendChild(hexCell);
-        row.appendChild(colorCell);
-        legendBody.appendChild(row);
+      elements.tabs.forEach((item) => {
+        const isActive = item === tab;
+        item.classList.toggle("active", isActive);
+        item.setAttribute("aria-selected", String(isActive));
       });
 
-      // Add node colors
-      nodes.forEach(node => node.color = groupColors[node.group])
-    }
-
-    // Update legend initially
-    updateLegend(filteredNodes);
-
-    // Function to highlight a table row on hover
-    function highlightNode(row) {
-        // Add light shading to the entire row on hover
-        row.style.backgroundColor = "#f2f2f2";
-
-        // Change cursor to a pointer on hover
-        row.style.cursor = "pointer";
-    }
-
-    // Function to remove highlighting when mouse leaves a cell
-    function unhighlightNode(row) {
-        // Add light shading to the entire row on hover
-        row.style.backgroundColor = "";
-
-        // Change cursor to a pointer on hover
-        row.style.cursor = "";
-    }
-
-    // Function to populate the table from graph nodes
-    function populateNodeTable() {
-
-        const tableBody = document.getElementById("TableBody");
-        const searchInput = document.getElementById("searchInput");
-
-        // Clear previous table content
-        tableBody.innerHTML = '';
-
-        // Filter nodes based on the search input
-        const searchTerm = searchInput.value.toLowerCase();
-        const searchFilteredNodes = filteredNodes.filter(node => node.id.toLowerCase().includes(searchTerm));
-
-        // Populate the table with filtered nodes
-        searchFilteredNodes.forEach(node => {
-            const row = document.createElement("tr");
-            const nameCell = document.createElement("td");
-            const incomingCell = document.createElement("td");
-            const outgoingCell = document.createElement("td");
-            const groupCell = document.createElement("td");
-
-            nameCell.textContent = node.id;
-            incomingCell.textContent = node.incomingCount;
-            outgoingCell.textContent = node.outgoingCount;
-            groupCell.textContent = node.group;
-
-            // Add event listeners for highlighting on hover and click
-            row.addEventListener("mouseover", () => highlightNode(row));
-            row.addEventListener("mouseout", () => unhighlightNode(row));
-            row.addEventListener("click", () => {
-                toggleNodeHighlight(node);
-                zoomIntoNode(node);
-            });
-
-            row.appendChild(nameCell);
-            row.appendChild(incomingCell);
-            row.appendChild(outgoingCell);
-            row.appendChild(groupCell);
-            tableBody.appendChild(row);
-        });
-    }   
-
-    // Call the populateNodeTable function
-    populateNodeTable();
-
-    // Attach event listener to the search input for real-time updates
-    document.getElementById("searchInput").addEventListener("input", populateNodeTable);
-});
-
-let currentSortColumn = null;
-let currentSortDirection = 'ascending';
-
-// Function to toggle the sort direction
-function toggleSortDirection() {
-    currentSortDirection = currentSortDirection === 'ascending' ? 'descending' : 'ascending';
+      elements.panels.forEach((panel) => {
+        const isActive = panel.id === `panel-${panelName}`;
+        panel.classList.toggle("active", isActive);
+        panel.hidden = !isActive;
+      });
+    });
+  });
 }
 
-// Function to update the sort icon based on the current sort direction
-function updateSortIcon(column) {
-    const iconElement = document.getElementById(`${column}-sort-icon`);
+function initTableInteractions() {
+  elements.searchInput.addEventListener(
+    "input",
+    debounce((event) => {
+      state.searchQuery = event.target.value;
+      state.selectedNode = null;
+      renderTable();
+    }, 150)
+  );
 
-    // Remove existing classes
-    iconElement.classList.remove('ascending', 'descending');
+  elements.tableBody.addEventListener("click", (event) => {
+    const row = event.target.closest("tr[data-node-id]");
+    if (!row) return;
 
-    // Add the appropriate class based on the current sort direction
-    iconElement.classList.add(currentSortDirection);
+    focusCourse(state.nodeById.get(row.dataset.nodeId));
+  });
+
+  elements.sortButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const column = button.dataset.sort;
+
+      if (state.sortColumn === column) {
+        state.sortDirection =
+          state.sortDirection === "ascending" ? "descending" : "ascending";
+      } else {
+        state.sortColumn = column;
+        state.sortDirection = "ascending";
+      }
+
+      updateSortButtons();
+      renderTable();
+    });
+  });
 }
 
-// Function to sort the table by a specific column
-function sortTableBy(column) {
+function initGraph() {
+  const highlightNodes = new Set();
+  const highlightLinks = new Set();
 
-    // Toggle the sort direction if clicking the same column
-    if (currentSortColumn === column) {
-        toggleSortDirection();
-    } else {
-        // Reset sort direction if clicking a different column
-        currentSortDirection = 'ascending';
+  const syncHighlights = () => {
+    highlightNodes.clear();
+    highlightLinks.clear();
+
+    const node = state.selectedNode;
+    if (!node) return;
+
+    highlightNodes.add(node);
+    node.neighbors.forEach((neighbor) => highlightNodes.add(neighbor));
+    node.links.forEach((link) => highlightLinks.add(link));
+  };
+
+  state.graph = ForceGraph()(elements.graph)
+    .backgroundColor("transparent")
+    .autoPauseRedraw(false)
+    .cooldownTicks(100)
+    .nodeId("id")
+    .nodeLabel("id")
+    .nodeColor((node) => node.color)
+    .nodeRelSize(5)
+    .linkColor(() => "rgba(100, 116, 139, 0.35)")
+    .linkDirectionalArrowLength(3.5)
+    .linkDirectionalArrowRelPos(1)
+    .linkWidth((link) => (highlightLinks.has(link) ? 3 : 1))
+    .linkDirectionalParticles(2)
+    .linkDirectionalParticleWidth((link) =>
+      highlightLinks.has(link) ? 3 : 0
+    )
+    .onNodeClick((node) => focusCourse(node))
+    .onBackgroundClick(() => {
+      state.selectedNode = null;
+    })
+    .nodeCanvasObjectMode((node) =>
+      highlightNodes.has(node) ? "before" : undefined
+    )
+    .nodeCanvasObject((node, ctx) => {
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, 7, 0, 2 * Math.PI, false);
+      const dark = isDarkTheme();
+      ctx.fillStyle =
+        node === state.selectedNode
+          ? dark
+            ? "#f0f6fc"
+            : "#0f172a"
+          : dark
+            ? "#8b949e"
+            : "#475569";
+      ctx.fill();
+    })
+    .onRenderFramePre(() => syncHighlights());
+
+  applyGraphTheme();
+  resizeGraph();
+  window.addEventListener("resize", debounce(resizeGraph, 100));
+}
+
+function showLoadError(message) {
+  elements.graphLoading.innerHTML = `<div class="graph-error">${message}</div>`;
+}
+
+async function init() {
+  initTheme();
+  initTabs();
+  initMobileViewControls();
+  initGraphControls();
+  initTableInteractions();
+  updateSortButtons();
+  initGraph();
+
+  try {
+    const response = await fetch(DATA_URL);
+    if (!response.ok) {
+      throw new Error(`Failed to load graph data (${response.status})`);
     }
 
-    // Update the sort icon
-    updateSortIcon(column);
+    const data = await response.json();
+    const prepared = prepareGraphData(data.nodes, data.links);
 
-    // Update the current sort column
-    currentSortColumn = column;
+    state.nodes = prepared.nodes;
+    state.links = prepared.links;
+    state.nodeById = prepared.nodeById;
 
-    const tableBody = document.getElementById("TableBody");
-    const rows = Array.from(tableBody.getElementsByTagName("tr"));
+    const groupColors = assignNodeColors(state.nodes);
+    renderLegend(groupColors);
+    renderTable();
 
-    // Exclude the first row from sorting
-    // const rowsToSort = rows.slice(1)
-
-    // Sort the remaining rows based on the selected column and direction
-    rows.sort((a, b) => {
-        const aValue = getColumnValue(a, column);
-        const bValue = getColumnValue(b, column);
-
-        // Apply different sorting logic based on the column
-        if (column === 'name' || column === 'group') {
-            // Alphabetical sorting for the "name" column
-            return currentSortDirection === 'ascending'
-                ? aValue.localeCompare(bValue)
-                : bValue.localeCompare(aValue);
-        } else {
-            // Numeric sorting for "incoming" and "outgoing" columns
-            const numericA = parseInt(aValue, 10);
-            const numericB = parseInt(bValue, 10);
-            return currentSortDirection === 'ascending'
-                ? numericA - numericB
-                : numericB - numericA;
-        }
+    state.graph.graphData({
+      nodes: state.nodes,
+      links: state.links,
     });
 
-    // Clear the existing rows
-    tableBody.innerHTML = '';
+    state.graph.onEngineStop(() => {
+      resizeGraph();
+    });
 
-    // Append the sorted rows to the table
-    rows.forEach(row => tableBody.appendChild(row));
+    resizeGraph();
+    elements.graphLoading.classList.add("hidden");
+    elements.resetViewBtn?.classList.remove("hidden");
+  } catch (error) {
+    showLoadError(
+      error instanceof Error ? error.message : "Unable to load course network."
+    );
+  }
 }
 
-// Function to get the value of a specific column in a row
-function getColumnValue(row, column) {
-    const cells = row.getElementsByTagName("td");
-
-    if (cells.length > 0) {
-        // Customize the column index based on your table structure
-        switch (column) {
-            case 'name':
-                return cells[0].textContent;
-            case 'incoming':
-                return cells[1].textContent;
-            case 'outgoing':
-                return cells[2].textContent;
-            case 'group':
-                return cells[3].textContent;
-            default:
-                return '';
-        }
-    }
-}
-
-
-
+document.addEventListener("DOMContentLoaded", init);
