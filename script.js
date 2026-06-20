@@ -1,8 +1,6 @@
 const DATA_URL =
   "https://raw.githubusercontent.com/JayGupta797/course-network/main/graph.json";
 
-const THEME_KEY = "course-network-theme";
-
 const state = {
   nodes: [],
   links: [],
@@ -27,64 +25,15 @@ const elements = {
   panels: document.querySelectorAll(".panel"),
   sortButtons: document.querySelectorAll(".sort-btn"),
   viewButtons: document.querySelectorAll(".view-btn"),
-  themeToggle: document.getElementById("themeToggle"),
   resetViewBtn: document.getElementById("resetViewBtn"),
 };
-
-function isDarkTheme() {
-  return document.documentElement.dataset.theme === "dark";
-}
-
-function getPreferredTheme() {
-  const saved = localStorage.getItem(THEME_KEY);
-  if (saved === "light" || saved === "dark") return saved;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
-}
-
-function updateThemeToggle() {
-  if (!elements.themeToggle) return;
-
-  const dark = isDarkTheme();
-  elements.themeToggle.setAttribute(
-    "aria-label",
-    dark ? "Switch to light mode" : "Switch to dark mode"
-  );
-  elements.themeToggle.title = dark ? "Switch to light mode" : "Switch to dark mode";
-}
-
-function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  localStorage.setItem(THEME_KEY, theme);
-  updateThemeToggle();
-  applyGraphTheme();
-}
 
 function applyGraphTheme() {
   if (!state.graph) return;
 
-  const dark = isDarkTheme();
   state.graph
     .backgroundColor("transparent")
-    .linkColor(() =>
-      dark ? "rgba(148, 163, 184, 0.28)" : "rgba(100, 116, 139, 0.35)"
-    );
-}
-
-function initTheme() {
-  setTheme(getPreferredTheme());
-
-  elements.themeToggle?.addEventListener("click", () => {
-    setTheme(isDarkTheme() ? "light" : "dark");
-  });
-
-  window
-    .matchMedia("(prefers-color-scheme: dark)")
-    .addEventListener("change", (event) => {
-      if (localStorage.getItem(THEME_KEY)) return;
-      setTheme(event.matches ? "dark" : "light");
-    });
+    .linkColor(() => "rgba(148, 163, 184, 0.28)");
 }
 
 function debounce(fn, delay) {
@@ -421,15 +370,8 @@ function initGraph() {
     .nodeCanvasObject((node, ctx) => {
       ctx.beginPath();
       ctx.arc(node.x, node.y, 7, 0, 2 * Math.PI, false);
-      const dark = isDarkTheme();
       ctx.fillStyle =
-        node === state.selectedNode
-          ? dark
-            ? "#f0f6fc"
-            : "#0f172a"
-          : dark
-            ? "#8b949e"
-            : "#475569";
+        node === state.selectedNode ? "#f0f6fc" : "#8b949e";
       ctx.fill();
     })
     .onRenderFramePre(() => syncHighlights());
@@ -444,7 +386,6 @@ function showLoadError(message) {
 }
 
 async function init() {
-  initTheme();
   initTabs();
   initMobileViewControls();
   initGraphControls();

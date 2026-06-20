@@ -9,19 +9,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 
-    <script>
-      (function () {
-        const key = "course-network-theme";
-        const saved = localStorage.getItem(key);
-        const theme =
-          saved ||
-          (window.matchMedia("(prefers-color-scheme: dark)").matches
-            ? "dark"
-            : "light");
-        document.documentElement.dataset.theme = theme;
-      })();
-    </script>
-
     <link rel="stylesheet" href="styles.css">
     <script src="https://unpkg.com/force-graph@1.43.4/dist/force-graph.min.js" defer></script>
     <script src="script.js" defer></script>
@@ -55,16 +42,6 @@
                     data-panel="legend"
                 >
                     Legend
-                </button>
-                <button
-                    type="button"
-                    id="themeToggle"
-                    class="theme-toggle"
-                    aria-label="Switch to dark mode"
-                    title="Toggle dark mode"
-                >
-                    <span class="theme-label theme-label--to-dark">Dark</span>
-                    <span class="theme-label theme-label--to-light">Light</span>
                 </button>
             </nav>
 
